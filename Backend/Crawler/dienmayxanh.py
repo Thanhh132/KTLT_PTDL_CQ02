@@ -113,6 +113,7 @@ def crawl_dienmayxanh(product_name):
                     products.append({
                         "name": name,
                         "store_id": 1,
+                        "store_name": "Điện Máy Xanh",
                         "category_id": category_id,
                         "price": price,
                         "rating": rating,

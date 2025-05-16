@@ -111,6 +111,7 @@ def crawl_thegioididong(product_name):
                     products.append({
                         "name": name,
                         "store_id": 2,
+                        "store_name": "Thế Giới Di Động",
                         "category_id": category_id,
                         "price": price,
                         "rating": rating,

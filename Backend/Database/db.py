@@ -54,109 +54,97 @@ def get_db_cursor():
             conn.close()
 
 def init_db():
-    """Khởi tạo các bảng và dữ liệu mẫu nếu chưa tồn tại."""
-    create_database()
-    with get_db_cursor() as cursor:
-        # Tạo bảng Stores với ID cố định
-        cursor.execute("""
-            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Stores')
-            BEGIN
-                CREATE TABLE Stores (
-                    id INT PRIMARY KEY,
-                    name NVARCHAR(100) NOT NULL UNIQUE,
-                    website NVARCHAR(500),
-                    created_at DATETIME DEFAULT GETDATE()
-                )
-            END
-        """)
+    """Khởi tạo database và các bảng."""
+    try:
+        # First create the database if it doesn't exist
+        create_database()
+        
+        # Now use the context manager for database operations
+        with get_db_cursor() as cursor:
+            # Tạo bảng Categories nếu chưa tồn tại
+            cursor.execute("""
+                IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Categories')
+                BEGIN
+                    CREATE TABLE Categories (
+                        id INT IDENTITY(1,1) PRIMARY KEY,
+                        name NVARCHAR(100) NOT NULL
+                    )
+                END
+            """)
 
-        # Tạo bảng Categories
-        cursor.execute("""
-            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Categories')
-            BEGIN
-                CREATE TABLE Categories (
-                    id INT PRIMARY KEY,  -- Cố định ID
-                    name NVARCHAR(100) NOT NULL UNIQUE,
-                    created_at DATETIME DEFAULT GETDATE()
-                )
-            END
-        """)
+            # Tạo bảng Stores nếu chưa tồn tại
+            cursor.execute("""
+                IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Stores')
+                BEGIN
+                    CREATE TABLE Stores (
+                        id INT PRIMARY KEY,
+                        name NVARCHAR(100) NOT NULL,
+                        website NVARCHAR(500)
+                    )
+                END
+            """)
 
-        # Tạo bảng Products (category_id cho phép NULL)
-        cursor.execute("""
-            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Products')
-            BEGIN
-                CREATE TABLE Products (
-                    id INT IDENTITY(1,1) PRIMARY KEY,
-                    name NVARCHAR(255) NOT NULL,
-                    store_id INT NOT NULL,
-                    category_id INT NULL,
-                    price DECIMAL(15,2) NOT NULL,
-                    rating FLOAT,
-                    link NVARCHAR(500) NOT NULL,
-                    image_url NVARCHAR(500),
-                    updated_at DATETIME DEFAULT GETDATE(),
-                    FOREIGN KEY (store_id) REFERENCES Stores(id),
-                    FOREIGN KEY (category_id) REFERENCES Categories(id)
-                )
-            END
-        """)
+            # Tạo bảng Products nếu chưa tồn tại
+            cursor.execute("""
+                IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Products')
+                BEGIN
+                    CREATE TABLE Products (
+                        id INT IDENTITY(1,1) PRIMARY KEY,
+                        name NVARCHAR(500) NOT NULL,
+                        price DECIMAL(18,2) NOT NULL,
+                        store_id INT FOREIGN KEY REFERENCES Stores(id),
+                        category_id INT FOREIGN KEY REFERENCES Categories(id),
+                        rating FLOAT,
+                        link NVARCHAR(1000),
+                        image_url NVARCHAR(1000),
+                        is_favorite BIT DEFAULT 0,
+                        created_at DATETIME DEFAULT GETDATE(),
+                        updated_at DATETIME DEFAULT GETDATE()
+                    )
+                END
+            """)
 
-        # Tạo các indexes
-        cursor.execute("""
-            IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_product_name')
-            BEGIN
-                CREATE INDEX idx_product_name ON Products(name)
-            END
-        """)
-        cursor.execute("""
-            IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_product_price')
-            BEGIN
-                CREATE INDEX idx_product_price ON Products(price)
-            END
-        """)
+            # Thêm dữ liệu mẫu cho Categories nếu chưa có
+            cursor.execute("""
+                IF NOT EXISTS (SELECT * FROM Categories)
+                BEGIN
+                    INSERT INTO Categories (name) VALUES 
+                    (N'Điện thoại'),
+                    (N'Laptop'),
+                    (N'Máy tính bảng'),
+                    (N'Tai nghe'),
+                    (N'Tivi')
+                END
+            """)
 
-        # Tạo bảng PriceHistory
-        cursor.execute("""
-            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'PriceHistory')
-            BEGIN
-                CREATE TABLE PriceHistory (
-                    id INT IDENTITY(1,1) PRIMARY KEY,
-                    product_id INT NOT NULL,
-                    price DECIMAL(15,2) NOT NULL,
-                    recorded_at DATETIME DEFAULT GETDATE(),
-                    FOREIGN KEY (product_id) REFERENCES Products(id)
-                )
-            END
-        """)
+            # Thêm dữ liệu mẫu cho Stores nếu chưa có
+            cursor.execute("""
+                IF NOT EXISTS (SELECT * FROM Stores)
+                BEGIN
+                    INSERT INTO Stores (id, name, website) VALUES
+                    (1, N'Điện Máy Xanh', 'https://www.dienmayxanh.com'),
+                    (2, N'Thế Giới Di Động', 'https://www.thegioididong.com'),
+                    (3, N'Chợ Tốt', 'https://www.chotot.com')
+                END
+            """)
 
-        # Thêm dữ liệu mẫu vào bảng Stores nếu chưa có
-        cursor.execute("""
-            IF NOT EXISTS (SELECT 1 FROM Stores)
-            BEGIN
-                INSERT INTO Stores (id, name, website)
-                VALUES 
-                    (1, N'Điện Máy Xanh', N'https://www.dienmayxanh.com'),
-                    (2, N'Thế Giới Di Động', N'https://www.thegioididong.com'),
-                    (3, N'Chợ Tốt', N'https://chotot.com')
-            END
-        """)
+            # Thêm dữ liệu mẫu cho Products nếu chưa có
+            cursor.execute("""
+                IF NOT EXISTS (SELECT * FROM Products)
+                BEGIN
+                    INSERT INTO Products (name, price, store_id, category_id, link, image_url)
+                    VALUES 
+                    (N'Samsung Galaxy S21', 15990000, 1, 1, 'https://www.dienmayxanh.com/samsung-s21', 'https://example.com/s21.jpg'),
+                    (N'iPhone 13', 19990000, 2, 1, 'https://www.thegioididong.com/iphone-13', 'https://example.com/iphone13.jpg'),
+                    (N'MacBook Air M1', 22990000, 2, 2, 'https://www.thegioididong.com/macbook-air-m1', 'https://example.com/macbook.jpg')
+                END
+            """)
 
-        # Thêm dữ liệu mẫu vào bảng Categories nếu chưa có
-        cursor.execute("""
-            IF NOT EXISTS (SELECT 1 FROM Categories)
-            BEGIN
-                INSERT INTO Categories (id, name)
-                VALUES 
-                    (1, N'Điện thoại'),
-                    (2, N'Laptop'),
-                    (3, N'Máy tính bảng'),
-                    (4, N'Tai nghe'),
-                    (5, N'Tivi')
-            END
-        """)
+            logger.info("Database tables and initial data have been created successfully.")
 
-        logger.info("Database tables and initial data have been created successfully.")
+    except Exception as e:
+        logger.error(f"Database error: {e}")
+        raise
 
 def get_category_id(cursor, product_name):
     """Lấy category_id dựa trên từ khóa tìm kiếm."""

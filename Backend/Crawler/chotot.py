@@ -94,6 +94,7 @@ def crawl_chotot(product_name):
                     product = {
                         "name": name,
                         "store_id": 3,  # Chợ Tốt
+                        "store_name": "Chợ Tốt",
                         "category_id": get_category_id_from_keyword(name),
                         "price": price,
                         "rating": 0.0,

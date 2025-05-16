@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sản Phẩm Yêu Thích</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/CSS/style.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container my-5">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>Sản Phẩm Yêu Thích</h1>
+            <div>
+                <button id="clearAllBtn" class="btn btn-danger me-2">
+                    <i class="fas fa-trash-alt"></i> Xóa Tất Cả
+                </button>
+                <a href="/" class="btn btn-primary">
+                    <i class="fas fa-home"></i> Về Trang Chủ
+                </a>
+            </div>
+        </div>
+
+        <!-- Loading -->
+        <div id="loading" class="text-center d-none">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Đang xử lý...</span>
+            </div>
+            <p>Đang xử lý...</p>
+        </div>
+
+        <!-- Kết quả -->
+        <div id="results" class="row"></div>
+
+        <div id="noResults" class="text-center d-none">
+            <p>Chưa có sản phẩm yêu thích nào.</p>
+            <a href="/" class="btn btn-primary">Về Trang Chủ</a>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const resultsContainer = document.getElementById('results');
+        const loading = document.getElementById('loading');
+        const noResults = document.getElementById('noResults');
+
+        // Load danh sách yêu thích
+        async function loadFavorites() {
+            loading.classList.remove('d-none');
+            resultsContainer.innerHTML = '';
+            noResults.classList.add('d-none');
+
+            try {
+                const response = await fetch('/api/favorites');
+                if (!response.ok) throw new Error('Lỗi khi tải danh sách yêu thích');
+                
+                const data = await response.json();
+                if (!data || data.length === 0) {
+                    noResults.classList.remove('d-none');
+                    return;
+                }
+
+                displayResults(data);
+            } catch (error) {
+                console.error('Lỗi:', error);
+                noResults.classList.remove('d-none');
+            } finally {
+                loading.classList.add('d-none');
+            }
+        }
+
+        // Xóa một sản phẩm khỏi yêu thích
+        async function removeFavorite(productId) {
+            try {
+                const response = await fetch(`/api/favorites/${productId}`, { method: 'DELETE' });
+                if (!response.ok) {
+                    throw new Error('Lỗi khi xóa sản phẩm khỏi yêu thích');
+                }
+
+                // Xóa card khỏi UI
+                const card = document.querySelector(`[data-product-id="${productId}"]`);
+                if (card) {
+                    const cardContainer = card.parentNode;
+                    if (cardContainer) {
+                        cardContainer.remove();
+                        
+                        // Kiểm tra nếu không còn sản phẩm nào
+                        if (resultsContainer.children.length === 0) {
+                            noResults.classList.remove('d-none');
+                        }
+                    }
+                }
+
+                // Cập nhật trạng thái yêu thích ở trang index nếu đang mở
+                try {
+                    window.opener?.updateFavoriteStatus?.(productId, false);
+                } catch (e) {
+                    console.log('Không thể cập nhật trạng thái ở trang chủ');
+                }
+            } catch (error) {
+                console.error('Lỗi:', error);
+                alert('Có lỗi xảy ra khi xóa sản phẩm khỏi yêu thích');
+            }
+        }
+
+        // Xóa tất cả sản phẩm yêu thích
+        async function clearAllFavorites() {
+            if (!confirm('Bạn có chắc muốn xóa tất cả sản phẩm yêu thích?')) return;
+
+            try {
+                const response = await fetch('/api/favorites', { method: 'DELETE' });
+                if (!response.ok) throw new Error('Lỗi khi xóa tất cả sản phẩm yêu thích');
+                
+                resultsContainer.innerHTML = '';
+                noResults.classList.remove('d-none');
+            } catch (error) {
+                console.error('Lỗi:', error);
+                alert('Có lỗi xảy ra khi xóa tất cả sản phẩm yêu thích');
+            }
+        }
+
+        // Hiển thị kết quả
+        function displayResults(products) {
+            resultsContainer.innerHTML = '';
+            
+            products.forEach(product => {
+                const card = document.createElement('div');
+                card.className = 'col-md-4 mb-3';
+                card.innerHTML = `
+                    <div class="card product-card h-100" data-product-id="${product.id}">
+                        <button class="remove-favorite-btn" onclick="removeFavorite(${product.id})">
+                            <i class="fas fa-times"></i>
+                        </button>
+                        <img src="${product.image_url || '/static/placeholder.png'}" class="card-img-top" 
+                             alt="${product.name}" onerror="this.src='/static/placeholder.png'">
+                        <div class="card-body d-flex flex-column">
+                            <h5 class="card-title">${product.name}</h5>
+                            <p class="card-text">Giá: ${product.price.toLocaleString('vi-VN')} ₫</p>
+                            <p class="card-text">Cửa hàng: ${product.store_name || 'Không xác định'}</p>
+                            <div class="mt-auto">
+                                <a href="${product.link}" target="_blank" class="btn btn-primary w-100">Xem chi tiết</a>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                resultsContainer.appendChild(card);
+            });
+        }
+
+        // Event listeners
+        document.getElementById('clearAllBtn').addEventListener('click', clearAllFavorites);
+        
+        // Load favorites khi trang được mở
+        window.addEventListener('load', loadFavorites);
+    </script>
+</body>
+</html> 
