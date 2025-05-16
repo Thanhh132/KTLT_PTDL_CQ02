@@ -1,37 +1,50 @@
-from fastapi import FastAPI, Request
-from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response, HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from Services.search import search_product
 import logging
-import uvicorn
+import os
 
-app = FastAPI()
-templates = Jinja2Templates(directory="Frontend")
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Thiết lập logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-class SearchRequest(BaseModel):
-    product_name: str
+app = FastAPI()
 
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    logger.info("Truy cập trang chủ")
-    return templates.TemplateResponse("index.html", {"request": request})
+# Cấu hình CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Cho phép tất cả origins trong môi trường development
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.post("/search")
-async def search(request: SearchRequest):
+@app.get("/api/search")
+async def search_endpoint(product_name: str = ""):
+    if not product_name:
+        return {"error": "Vui lòng cung cấp product_name"}
+    logger.info(f"Bắt đầu tìm kiếm: {product_name}")
+    result = search_product(product_name)
+    logger.info(f"Tìm kiếm '{product_name}' trả về {len(result)} kết quả")
+    return result
+
+@app.get("/favicon.ico")
+async def favicon():
     try:
-        logger.info(f"Bắt đầu tìm kiếm: {request.product_name}")
-        results = search_product(request.product_name)
-        logger.info(f"Tìm kiếm '{request.product_name}' trả về {len(results)} kết quả")
-        return {"results": results}
-    except Exception as e:
-        logger.error(f"Lỗi khi tìm kiếm '{request.product_name}': {str(e)}")
-        return {"error": str(e)}
+        return FileResponse("Frontend/favicon.ico")
+    except FileNotFoundError:
+        return Response(status_code=204)
+
+@app.get("/")
+async def root():
+    return FileResponse("Frontend/index.html")
+
+# Mount thư mục Frontend để phục vụ các file tĩnh
+app.mount("/static", StaticFiles(directory="Frontend"), name="frontend")
 
 if __name__ == "__main__":
-    logger.info("Khởi động server FastAPI")
+    logger.info("Khởi động server FastAPI tại 127.0.0.1:8000")
+    import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)

@@ -3,100 +3,102 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>So sánh giá sản phẩm</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f4f4f4;
-        }
-        h1 {
-            text-align: center;
-            color: #333;
-        }
-        .search-container {
-            max-width: 600px;
-            margin: 0 auto;
-            text-align: center;
-        }
-        input[type="text"] {
-            padding: 10px;
-            width: 70%;
-            font-size: 16px;
-        }
-        button {
-            padding: 10px 20px;
-            font-size: 16px;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            cursor: pointer;
-        }
-        button:hover {
-            background-color: #0056b3;
-        }
-        .results {
-            max-width: 800px;
-            margin: 20px auto;
-        }
-        .result-item {
-            background-color: white;
-            padding: 15px;
-            margin-bottom: 10px;
-            border-radius: 5px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-    </style>
+    <title>So Sánh Giá Sản Phẩm</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/styles.css" rel="stylesheet">
 </head>
 <body>
-    <h1>So sánh giá sản phẩm</h1>
-    <div class="search-container">
-        <form id="searchForm">
-            <input type="text" id="productName" placeholder="Nhập tên sản phẩm (VD: iPhone 15)" required>
-            <button type="submit">Tìm kiếm</button>
-        </form>
-    </div>
-    <div class="results" id="results">
-        {% for result in results %}
-        <div class="result-item">
-            <h3>{{ result.name }}</h3>
-            <p>Giá: {{ result.price }}₫</p>
-            <p>Cửa hàng: {{ result.store_name }}</p>
-            <a href="{{ result.link }}" target="_blank">Xem chi tiết</a>
+    <div class="container my-5">
+        <h1 class="text-center mb-4">So Sánh Giá Sản Phẩm</h1>
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <div class="input-group mb-3">
+                    <input type="text" id="searchInput" class="form-control" placeholder="Nhập tên sản phẩm (VD: điện thoại, laptop)">
+                    <button id="searchButton" class="btn btn-primary">Tìm kiếm</button>
+                </div>
+            </div>
         </div>
-        {% endfor %}
+
+        <div id="loading" class="text-center d-none">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Đang tìm kiếm...</span>
+            </div>
+            <p>Đang tìm kiếm...</p>
+        </div>
+
+        <div id="results" class="row"></div>
+
+        <div id="noResults" class="text-center d-none">
+            <p>Không tìm thấy sản phẩm nào.</p>
+        </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        document.getElementById("searchForm").addEventListener("submit", async (e) => {
-            e.preventDefault();
-            const productName = document.getElementById("productName").value;
-            try {
-                const response = await fetch("/search", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ product_name: productName }),
-                });
-                const data = await response.json();
-                const resultsDiv = document.getElementById("results");
-                if (data.results) {
-                    resultsDiv.innerHTML = data.results.map(item => `
-                        <div class="result-item">
-                            <h3>${item.name}</h3>
-                            <p>Giá: ${item.price}₫</p>
-                            <p>Cửa hàng: ${item.store_name}</p>
-                            <a href="${item.link}" target="_blank">Xem chi tiết</a>
-                        </div>
-                    `).join("");
-                } else {
-                    resultsDiv.innerHTML = "<p>Không tìm thấy sản phẩm.</p>";
-                }
-            } catch (error) {
-                console.error("Error:", error);
-                document.getElementById("results").innerHTML = "<p>Đã xảy ra lỗi. Vui lòng thử lại.</p>";
-            }
+        document.getElementById('searchButton').addEventListener('click', search);
+        document.getElementById('searchInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') search();
         });
+
+        async function search() {
+            const searchQuery = document.getElementById('searchInput').value.trim();
+            if (!searchQuery) {
+                alert('Vui lòng nhập tên sản phẩm');
+                return;
+            }
+
+            const loading = document.getElementById('loading');
+            const results = document.getElementById('results');
+            const noResults = document.getElementById('noResults');
+
+            loading.classList.remove('d-none');
+            results.innerHTML = '';
+            noResults.classList.add('d-none');
+
+            try {
+                const response = await fetch(`/api/search?product_name=${encodeURIComponent(searchQuery)}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                console.log('Dữ liệu nhận được:', JSON.stringify(data, null, 2));
+
+                loading.classList.add('d-none');
+
+                if (!data.results || data.total === 0) {
+                    noResults.classList.remove('d-none');
+                    return;
+                }
+
+                data.results.forEach(product => {
+                    if (!product.name || !product.price || !product.link) {
+                        console.warn('Sản phẩm thiếu thông tin:', product);
+                        return;
+                    }
+                    const storeName = product.store_id === 1 ? 'Điện Máy Xanh' :
+                                      product.store_id === 2 ? 'Thế Giới Di Động' : 'Chợ Tốt';
+                    const card = document.createElement('div');
+                    card.className = 'col-md-4 mb-3';
+                    card.innerHTML = `
+                        <div class="card">
+                            <img src="${product.image_url || '/static/placeholder.png'}" class="card-img-top" alt="${product.name}" onerror="this.src='/static/placeholder.png'">
+                            <div class="card-body">
+                                <h5 class="card-title">${product.name}</h5>
+                                <p class="card-text">Giá: ${product.price.toLocaleString('vi-VN')} ₫</p>
+                                <p class="card-text">Cửa hàng: ${storeName}</p>
+                                <a href="${product.link}" target="_blank" class="btn btn-primary">Xem chi tiết</a>
+                            </div>
+                        </div>
+                    `;
+                    results.appendChild(card);
+                });
+            } catch (error) {
+                console.error('Lỗi:', error);
+                loading.classList.add('d-none');
+                noResults.classList.remove('d-none');
+                noResults.innerHTML = `<p>Đã xảy ra lỗi: ${error.message}. Vui lòng thử lại.</p>`;
+            }
+        }
     </script>
 </body>
 </html>
