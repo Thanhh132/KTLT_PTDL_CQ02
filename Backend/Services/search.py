@@ -101,6 +101,13 @@ def search_product(product_name):
         all_results = collector.get_results()
         logger.info(f"Tổng số kết quả thu thập được: {len(all_results)}")
 
+        # Log số lượng sản phẩm theo từng store
+        store_counts = {}
+        for product in all_results:
+            store_id = product.get("store_id")
+            store_counts[store_id] = store_counts.get(store_id, 0) + 1
+        logger.info(f"Số lượng sản phẩm theo store: {store_counts}")
+
         # Lọc sản phẩm
         filtered_results = []
         excluded_keywords = [
@@ -122,13 +129,16 @@ def search_product(product_name):
         for category, keywords in required_keywords.items():
             if any(keyword in product_name_lower for keyword in keywords):
                 matched_category = category
+                logger.info(f"Tìm thấy danh mục phù hợp: {category}")
                 break
 
         for product in all_results:
             name_lower = standardize_product_name(product["name"]).lower()
+            store_id = product.get("store_id")
             
             # Chỉ áp dụng excluded_keywords cho Chợ Tốt
-            if product["store_id"] == 3:
+            if store_id == 3:
+                logger.debug(f"Đang xử lý sản phẩm Chợ Tốt: {product['name']}")
                 if any(keyword in name_lower for keyword in excluded_keywords):
                     logger.debug(f"Sản phẩm Chợ Tốt bị lọc do chứa từ khóa loại trừ: {product['name']}")
                     continue
@@ -138,11 +148,20 @@ def search_product(product_name):
                     if not any(keyword in name_lower for keyword in category_keywords):
                         logger.debug(f"Sản phẩm Chợ Tốt bị lọc do thiếu từ khóa bắt buộc: {product['name']}")
                         continue
+                    else:
+                        logger.debug(f"Sản phẩm Chợ Tốt phù hợp với từ khóa bắt buộc: {product['name']}")
             
             filtered_results.append(product)
-            logger.debug(f"Giữ sản phẩm: {product['name']} - Store ID: {product['store_id']}")
+            logger.debug(f"Giữ sản phẩm: {product['name']} - Store ID: {store_id}")
 
         logger.info(f"Số kết quả sau khi lọc: {len(filtered_results)}")
+        
+        # Log số lượng sản phẩm đã lọc theo từng store
+        filtered_store_counts = {}
+        for product in filtered_results:
+            store_id = product.get("store_id")
+            filtered_store_counts[store_id] = filtered_store_counts.get(store_id, 0) + 1
+        logger.info(f"Số lượng sản phẩm sau khi lọc theo store: {filtered_store_counts}")
 
         # Sắp xếp ưu tiên Điện Máy Xanh và Thế Giới Di Động
         filtered_results.sort(key=lambda x: (x["store_id"] not in [1, 2], float(x["price"])))

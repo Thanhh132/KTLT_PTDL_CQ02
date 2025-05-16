@@ -15,6 +15,7 @@
                 <div class="input-group mb-3">
                     <input type="text" id="searchInput" class="form-control" placeholder="Nhập tên sản phẩm (VD: điện thoại, laptop)">
                     <button id="searchButton" class="btn btn-primary">Tìm kiếm</button>
+                    <button id="clearHistoryButton" class="btn btn-danger">Xóa lịch sử</button>
                 </div>
             </div>
         </div>
@@ -38,6 +39,26 @@
         document.getElementById('searchButton').addEventListener('click', search);
         document.getElementById('searchInput').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') search();
+        });
+
+        document.getElementById('clearHistoryButton').addEventListener('click', async () => {
+            if (confirm('Bạn có chắc muốn xóa toàn bộ lịch sử tìm kiếm?')) {
+                try {
+                    const response = await fetch('/api/clear-history', {
+                        method: 'POST'
+                    });
+                    if (response.ok) {
+                        alert('Đã xóa lịch sử thành công!');
+                        // Xóa kết quả hiện tại nếu có
+                        document.getElementById('results').innerHTML = '';
+                    } else {
+                        alert('Có lỗi xảy ra khi xóa lịch sử!');
+                    }
+                } catch (error) {
+                    console.error('Lỗi:', error);
+                    alert('Có lỗi xảy ra khi xóa lịch sử!');
+                }
+            }
         });
 
         async function search() {

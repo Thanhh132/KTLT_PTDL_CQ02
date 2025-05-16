@@ -259,3 +259,23 @@ def save_products(products, product_name=""):
     except Exception as e:
         logger.error(f"Lỗi khi kết nối database: {str(e)}")
         raise
+
+def clear_history():
+    """Xóa toàn bộ dữ liệu từ bảng PriceHistory và Products."""
+    try:
+        with get_db_cursor() as cursor:
+            # Xóa dữ liệu từ bảng PriceHistory trước vì có khóa ngoại
+            cursor.execute("DELETE FROM PriceHistory")
+            logger.info("Đã xóa dữ liệu từ bảng PriceHistory")
+            
+            # Xóa dữ liệu từ bảng Products
+            cursor.execute("DELETE FROM Products")
+            logger.info("Đã xóa dữ liệu từ bảng Products")
+            
+            # Reset identity cho bảng Products
+            cursor.execute("DBCC CHECKIDENT ('Products', RESEED, 0)")
+            cursor.execute("DBCC CHECKIDENT ('PriceHistory', RESEED, 0)")
+            logger.info("Đã reset identity cho các bảng")
+    except Exception as e:
+        logger.error(f"Lỗi khi xóa lịch sử: {str(e)}")
+        raise

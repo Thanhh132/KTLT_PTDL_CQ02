@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from Services.search import search_product
+from Database.db import clear_history
 import logging
 import os
 
@@ -27,8 +28,18 @@ async def search_endpoint(product_name: str = ""):
         return {"error": "Vui lòng cung cấp product_name"}
     logger.info(f"Bắt đầu tìm kiếm: {product_name}")
     result = search_product(product_name)
-    logger.info(f"Tìm kiếm '{product_name}' trả về {len(result)} kết quả")
+    logger.info(f"Tìm kiếm '{product_name}' trả về {len(result.get('results', []))} kết quả")
     return result
+
+@app.post("/api/clear-history")
+async def clear_history_endpoint():
+    try:
+        clear_history()
+        logger.info("Đã xóa lịch sử tìm kiếm thành công")
+        return {"message": "Đã xóa lịch sử thành công"}
+    except Exception as e:
+        logger.error(f"Lỗi khi xóa lịch sử: {str(e)}")
+        return {"error": "Có lỗi xảy ra khi xóa lịch sử"}, 500
 
 @app.get("/favicon.ico")
 async def favicon():
