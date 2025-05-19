@@ -8,30 +8,45 @@ logger = logging.getLogger(__name__)
 
 def filter_products(query: str, min_price: float = None, max_price: float = None):
     """
-    Lọc sản phẩm theo từ khóa và khoảng giá
+    Lọc sản phẩm theo từ khóa và khoảng giá với khả năng tìm kiếm nâng cao
     """
     try:
         with get_db_cursor() as cursor:
             # Xây dựng câu truy vấn SQL cơ bản
             sql = """
-                SELECT p.*, s.name as store_name
+                SELECT p.*, s.name as store_name,
+                       CASE WHEN ? IS NULL THEN 0 ELSE 1 END as has_query
                 FROM Products p
                 JOIN Stores s ON p.store_id = s.id
                 WHERE 1=1
             """
-            params = []
+            params = [query]
 
             # Thêm điều kiện tìm kiếm theo từ khóa
             if query:
                 normalized_query = normalize_text(query)
                 search_terms = normalized_query.split()
+                
                 if search_terms:
                     sql += " AND ("
-                    conditions = []
+                    term_conditions = []
+                    
                     for term in search_terms:
-                        conditions.append("LOWER(p.name) LIKE ?")
+                        # Tìm kiếm chính xác
+                        exact_match = f"LOWER(p.name) LIKE ?"
                         params.append(f"%{term}%")
-                    sql += " OR ".join(conditions) + ")"
+                        
+                        # Tìm kiếm với dấu cách
+                        space_match = f"LOWER(p.name) LIKE ?"
+                        params.append(f"% {term} %")
+                        
+                        # Tìm kiếm đầu từ
+                        start_match = f"LOWER(p.name) LIKE ?"
+                        params.append(f"{term}%")
+                        
+                        term_conditions.append(f"({exact_match} OR {space_match} OR {start_match})")
+                    
+                    sql += " AND ".join(term_conditions) + ")"
 
             # Thêm điều kiện giá
             if min_price is not None:
@@ -40,6 +55,21 @@ def filter_products(query: str, min_price: float = None, max_price: float = None
             if max_price is not None:
                 sql += " AND p.price <= ?"
                 params.append(max_price)
+
+            # Thêm ORDER BY để ưu tiên kết quả phù hợp nhất
+            sql += """
+                ORDER BY 
+                    CASE 
+                        WHEN has_query = 1 AND LOWER(p.name) LIKE ? THEN 1  -- Ưu tiên 1: Khớp chính xác
+                        WHEN has_query = 1 AND LOWER(p.name) LIKE ? THEN 2  -- Ưu tiên 2: Chứa từ khóa
+                        ELSE 3                                              -- Ưu tiên 3: Các kết quả khác
+                    END,
+                    p.price ASC
+            """
+            if query:
+                params.extend([f"%{normalized_query}%", f"%{normalized_query}%"])
+            else:
+                params.extend([None, None])
 
             # Thực thi truy vấn
             cursor.execute(sql, params)
@@ -50,28 +80,9 @@ def filter_products(query: str, min_price: float = None, max_price: float = None
             
             for row in cursor.fetchall():
                 product = dict(zip(columns, row))
-                # Kiểm tra độ phù hợp của sản phẩm với từ khóa
-                if query:
-                    name = product['name']
-                    relevance_score = 0
-                    for term in search_terms:
-                        if text_contains(name, term):
-                            relevance_score += 1
-                    if relevance_score > 0:
-                        product['relevance_score'] = relevance_score
-                        results.append(product)
-                else:
-                    results.append(product)
-
-            # Sắp xếp kết quả theo độ phù hợp (nếu có tìm kiếm) và giá
-            if query:
-                results.sort(key=lambda x: (-x.get('relevance_score', 0), x['price']))
-                # Xóa trường relevance_score
-                for product in results:
-                    if 'relevance_score' in product:
-                        del product['relevance_score']
-            else:
-                results.sort(key=lambda x: x['price'])
+                if 'has_query' in product:
+                    del product['has_query']
+                results.append(product)
 
             return results
 
@@ -117,12 +128,21 @@ def filter_products_by_price(min_price: float = None, max_price: float = None):
 
 def search_local_products(query: str):
     """
-    Tìm kiếm sản phẩm trong database local
+    Tìm kiếm sản phẩm trong database local với độ linh hoạt cao
     """
     try:
         with get_db_cursor() as cursor:
+            # Chuẩn hóa query và tách từ khóa
             normalized_query = normalize_text(query).lower()
-            search_terms = normalized_query.split()
+            # Chỉ lấy các từ có ý nghĩa (độ dài > 1)
+            search_terms = [term for term in normalized_query.split() if len(term) > 1]
+            
+            if not search_terms:
+                return {
+                    "query": query,
+                    "total": 0,
+                    "results": []
+                }
             
             sql = """
                 SELECT p.*, s.name as store_name
@@ -132,13 +152,28 @@ def search_local_products(query: str):
             """
             params = []
 
-            if search_terms:
-                sql += " AND ("
-                conditions = []
-                for term in search_terms:
-                    conditions.append("LOWER(p.name) LIKE ?")
-                    params.append(f"%{term}%")
-                sql += " OR ".join(conditions) + ")"
+            # Xây dựng điều kiện tìm kiếm linh hoạt
+            sql += " AND ("
+            conditions = []
+            
+            # 1. Tìm kiếm từng từ riêng lẻ
+            for term in search_terms:
+                conditions.append("LOWER(p.name) LIKE ?")
+                params.append(f"%{term}%")
+            
+            # 2. Tìm kiếm cả cụm từ
+            if len(search_terms) > 1:
+                full_query = ' '.join(search_terms)
+                conditions.append("LOWER(p.name) LIKE ?")
+                params.append(f"%{full_query}%")
+            
+            # 3. Tìm kiếm với dấu cách linh hoạt
+            if len(search_terms) > 1:
+                flexible_query = '%'.join(search_terms)
+                conditions.append("LOWER(p.name) LIKE ?")
+                params.append(f"%{flexible_query}%")
+            
+            sql += " OR ".join(conditions) + ")"
 
             cursor.execute(sql, params)
             columns = [column[0] for column in cursor.description]
@@ -146,21 +181,51 @@ def search_local_products(query: str):
             
             for row in cursor.fetchall():
                 product = dict(zip(columns, row))
-                name = product['name']
+                name = product['name'].lower()
                 relevance_score = 0
                 
+                # 1. Điểm cho từng từ khóa riêng lẻ
                 for term in search_terms:
-                    if text_contains(name, term):
+                    if term in name:
                         relevance_score += 1
+                        # Bonus điểm nếu từ khóa ở đầu tên
+                        if name.startswith(term):
+                            relevance_score += 0.5
+                        # Bonus điểm nếu khớp chính xác
+                        if f" {term} " in f" {name} ":
+                            relevance_score += 0.5
                 
+                # 2. Điểm cho cụm từ hoàn chỉnh
+                if len(search_terms) > 1:
+                    full_query = ' '.join(search_terms)
+                    if full_query in name:
+                        relevance_score += 2
+                        if name.startswith(full_query):
+                            relevance_score += 1
+                
+                # 3. Điểm cho store uy tín
+                if product['store_id'] in [1, 2]:  # TGDD và DMX
+                    relevance_score += 0.5
+                
+                # 4. Điểm cho tên ngắn gọn (ưu tiên tên không quá dài)
+                if len(name.split()) <= 5:
+                    relevance_score += 0.5
+                
+                # 5. Điểm cho khớp category
+                category_id = get_product_category(name)
+                search_category = get_product_category(query)
+                if category_id and search_category and category_id == search_category:
+                    relevance_score += 1
+                
+                # Thêm sản phẩm nếu có điểm phù hợp
                 if relevance_score > 0:
                     product['relevance_score'] = relevance_score
                     results.append(product)
 
             # Sắp xếp theo độ phù hợp và giá
-            results.sort(key=lambda x: (-x['relevance_score'], x['price']))
+            results.sort(key=lambda x: (-x['relevance_score'], float(x['price'])))
             
-            # Xóa trường relevance_score
+            # Xóa điểm phù hợp trước khi trả về
             for product in results:
                 del product['relevance_score']
 
@@ -169,10 +234,13 @@ def search_local_products(query: str):
                 "total": len(results),
                 "results": results
             }
-
     except Exception as e:
         logger.error(f"Lỗi khi tìm kiếm local: {str(e)}")
-        return {"query": query, "total": 0, "results": []}
+        return {
+            "query": query,
+            "total": 0,
+            "results": []
+        }
 
 def compare_products(product_ids: list):
     """

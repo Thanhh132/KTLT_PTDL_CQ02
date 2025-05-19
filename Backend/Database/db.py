@@ -1,30 +1,40 @@
 import pyodbc
 import logging
+import os
 from contextlib import contextmanager
+from typing import List, Dict, Any, Optional
+from datetime import datetime
 
 # Thiết lập logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Cấu hình kết nối database
-connection_string = (
-    "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=ASUS-132\\ASUS;"
-    "DATABASE=TMDR;"
-    "Trusted_Connection=yes;"
-)
+# Thông tin kết nối database
+DB_SERVER = 'ASUS-132\\ASUS'
+DB_NAME = 'TMDR'
+DB_TRUSTED_CONNECTION = 'yes'
+DB_DRIVER = 'ODBC Driver 17 for SQL Server'
+
+def get_connection_string() -> str:
+    """Tạo chuỗi kết nối database."""
+    return f'DRIVER={{{DB_DRIVER}}};SERVER={DB_SERVER};DATABASE=master;Trusted_Connection={DB_TRUSTED_CONNECTION};charset=UTF8'
 
 def create_database():
     """Tạo database nếu chưa tồn tại."""
     try:
-        conn = pyodbc.connect(
-            "DRIVER={ODBC Driver 17 for SQL Server};"
-            "SERVER=ASUS-132\\ASUS;"
-            "Trusted_Connection=yes;"
-        )
+        # Kết nối đến master database trước
+        conn = pyodbc.connect(get_connection_string())
         conn.autocommit = True
         cursor = conn.cursor()
-        cursor.execute("IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'TMDR') CREATE DATABASE TMDR")
+        
+        # Kiểm tra và tạo database TMDR
+        cursor.execute("""
+            IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'TMDR')
+            BEGIN
+                CREATE DATABASE TMDR
+            END
+        """)
+        
         cursor.close()
         conn.close()
         logger.info("Database TMDR created or already exists.")
@@ -32,13 +42,17 @@ def create_database():
         logger.error(f"Lỗi khi tạo database: {str(e)}")
         raise
 
+def get_db_connection_string() -> str:
+    """Tạo chuỗi kết nối đến database TMDR."""
+    return f'DRIVER={{{DB_DRIVER}}};SERVER={DB_SERVER};DATABASE={DB_NAME};Trusted_Connection={DB_TRUSTED_CONNECTION};charset=UTF8'
+
 @contextmanager
 def get_db_cursor():
     """Context manager để quản lý kết nối database."""
     conn = None
     cursor = None
     try:
-        conn = pyodbc.connect(connection_string)
+        conn = pyodbc.connect(get_db_connection_string())
         cursor = conn.cursor()
         yield cursor
         conn.commit()
@@ -54,216 +68,273 @@ def get_db_cursor():
             conn.close()
 
 def init_db():
-    """Khởi tạo database và các bảng."""
+    """Khởi tạo database và các bảng cần thiết."""
     try:
-        # First create the database if it doesn't exist
+        # Đảm bảo database tồn tại
         create_database()
         
-        # Now use the context manager for database operations
         with get_db_cursor() as cursor:
-            # Tạo bảng Categories nếu chưa tồn tại
+            # Tạo bảng Users nếu chưa tồn tại
             cursor.execute("""
-                IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Categories')
+                IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Users')
                 BEGIN
-                    CREATE TABLE Categories (
-                        id INT IDENTITY(1,1) PRIMARY KEY,
-                        name NVARCHAR(100) NOT NULL
+                    CREATE TABLE Users (
+                        id INT PRIMARY KEY IDENTITY(1,1),
+                        username NVARCHAR(50) NOT NULL,
+                        created_at DATETIME DEFAULT GETDATE()
                     )
                 END
             """)
+
+            # Thêm user mặc định nếu chưa có
+            cursor.execute("IF NOT EXISTS (SELECT * FROM Users WHERE id = 1) BEGIN SET IDENTITY_INSERT Users ON; INSERT INTO Users (id, username) VALUES (1, 'default_user'); SET IDENTITY_INSERT Users OFF; END")
 
             # Tạo bảng Stores nếu chưa tồn tại
             cursor.execute("""
                 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Stores')
                 BEGIN
                     CREATE TABLE Stores (
-                        id INT PRIMARY KEY,
+                        id INT PRIMARY KEY IDENTITY(1,1),
                         name NVARCHAR(100) NOT NULL,
-                        website NVARCHAR(500)
+                        url NVARCHAR(255)
                     )
                 END
             """)
+
+            # Thêm các cửa hàng mặc định nếu chưa có
+            cursor.execute("IF NOT EXISTS (SELECT * FROM Stores) BEGIN INSERT INTO Stores (name, url) VALUES ('Điện Máy Xanh', 'https://www.dienmayxanh.com'), ('Thế Giới Di Động', 'https://www.thegioididong.com'), ('Chợ Tốt', 'https://www.chotot.com') END")
 
             # Tạo bảng Products nếu chưa tồn tại
             cursor.execute("""
                 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Products')
                 BEGIN
                     CREATE TABLE Products (
-                        id INT IDENTITY(1,1) PRIMARY KEY,
-                        name NVARCHAR(500) NOT NULL,
+                        id INT PRIMARY KEY IDENTITY(1,1),
+                        name NVARCHAR(255) NOT NULL,
                         price DECIMAL(18,2) NOT NULL,
                         store_id INT FOREIGN KEY REFERENCES Stores(id),
-                        category_id INT FOREIGN KEY REFERENCES Categories(id),
+                        category_id INT,
+                        link NVARCHAR(MAX),
+                        image_url NVARCHAR(MAX),
+                        condition NVARCHAR(50),
                         rating FLOAT,
-                        link NVARCHAR(1000),
-                        image_url NVARCHAR(1000),
-                        is_favorite BIT DEFAULT 0,
-                        created_at DATETIME DEFAULT GETDATE(),
-                        updated_at DATETIME DEFAULT GETDATE()
+                        last_updated DATETIME DEFAULT GETDATE()
                     )
                 END
             """)
 
-            # Thêm dữ liệu mẫu cho Categories nếu chưa có
+            # Tạo bảng Favorites nếu chưa tồn tại
             cursor.execute("""
-                IF NOT EXISTS (SELECT * FROM Categories)
+                IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Favorites')
                 BEGIN
-                    INSERT INTO Categories (name) VALUES 
-                    (N'Điện thoại'),
-                    (N'Laptop'),
-                    (N'Máy tính bảng'),
-                    (N'Tai nghe'),
-                    (N'Tivi')
+                    CREATE TABLE Favorites (
+                        id INT PRIMARY KEY IDENTITY(1,1),
+                        user_id INT FOREIGN KEY REFERENCES Users(id),
+                        product_id INT FOREIGN KEY REFERENCES Products(id),
+                        created_at DATETIME DEFAULT GETDATE(),
+                        UNIQUE (user_id, product_id)
+                    )
                 END
             """)
 
-            # Thêm dữ liệu mẫu cho Stores nếu chưa có
+            # Tạo bảng PriceHistory nếu chưa tồn tại
             cursor.execute("""
-                IF NOT EXISTS (SELECT * FROM Stores)
+                IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'PriceHistory')
                 BEGIN
-                    INSERT INTO Stores (id, name, website) VALUES
-                    (1, N'Điện Máy Xanh', 'https://www.dienmayxanh.com'),
-                    (2, N'Thế Giới Di Động', 'https://www.thegioididong.com'),
-                    (3, N'Chợ Tốt', 'https://www.chotot.com')
+                    CREATE TABLE PriceHistory (
+                        id INT PRIMARY KEY IDENTITY(1,1),
+                        product_id INT FOREIGN KEY REFERENCES Products(id),
+                        price DECIMAL(18,2) NOT NULL,
+                        recorded_at DATETIME DEFAULT GETDATE()
+                    )
                 END
             """)
 
-            # Thêm dữ liệu mẫu cho Products nếu chưa có
+            # Tạo bảng SearchHistory nếu chưa tồn tại
             cursor.execute("""
-                IF NOT EXISTS (SELECT * FROM Products)
+                IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'SearchHistory')
                 BEGIN
-                    INSERT INTO Products (name, price, store_id, category_id, link, image_url)
-                    VALUES 
-                    (N'Samsung Galaxy S21', 15990000, 1, 1, 'https://www.dienmayxanh.com/samsung-s21', 'https://example.com/s21.jpg'),
-                    (N'iPhone 13', 19990000, 2, 1, 'https://www.thegioididong.com/iphone-13', 'https://example.com/iphone13.jpg'),
-                    (N'MacBook Air M1', 22990000, 2, 2, 'https://www.thegioididong.com/macbook-air-m1', 'https://example.com/macbook.jpg')
+                    CREATE TABLE SearchHistory (
+                        id INT PRIMARY KEY IDENTITY(1,1),
+                        query NVARCHAR(255) NOT NULL,
+                        user_id INT FOREIGN KEY REFERENCES Users(id),
+                        searched_at DATETIME DEFAULT GETDATE()
+                    )
                 END
             """)
 
-            logger.info("Database tables and initial data have been created successfully.")
+            # Tạo bảng Notifications nếu chưa tồn tại
+            cursor.execute("""
+                IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Notifications')
+                BEGIN
+                    CREATE TABLE Notifications (
+                        id INT PRIMARY KEY IDENTITY(1,1),
+                        product_id INT FOREIGN KEY REFERENCES Products(id),
+                        message NVARCHAR(MAX) NOT NULL,
+                        is_read BIT DEFAULT 0,
+                        created_at DATETIME DEFAULT GETDATE()
+                    )
+                END
+            """)
 
+            logger.info("Đã khởi tạo database thành công")
     except Exception as e:
-        logger.error(f"Database error: {e}")
+        logger.error(f"Lỗi khi khởi tạo database: {str(e)}")
         raise
 
-def get_category_id(cursor, product_name):
-    """Lấy category_id dựa trên từ khóa tìm kiếm."""
-    categories = {
-        'dien thoai': 'Điện thoại',
-        'laptop': 'Laptop',
-        'may tinh bang': 'Máy tính bảng',
-        'tai nghe': 'Tai nghe',
-        'tivi': 'Tivi'
-    }
-    product_name_lower = product_name.lower().strip()
-    for keyword, category_name in categories.items():
-        if keyword in product_name_lower:
-            cursor.execute("SELECT id FROM Categories WHERE name = ?", (category_name,))
-            result = cursor.fetchone()
-            if result:
-                return result[0]
-    return None
-
-def save_products(products, product_name=""):
-    """Lưu sản phẩm vào bảng Products và PriceHistory."""
-    logger.info(f"Bắt đầu lưu {len(products)} sản phẩm vào database")
-
+def save_products(products: List[Dict[str, Any]], search_query: str):
+    """Lưu danh sách sản phẩm vào database."""
     try:
         with get_db_cursor() as cursor:
-            cursor.execute("SELECT id, name FROM Stores")
-            stores = cursor.fetchall()
-            logger.info("Store IDs in database:")
-            for store in stores:
-                logger.info(f"Store ID: {store[0]} - Name: {store[1]}")
-
-            # Lấy category_id dựa trên từ khóa tìm kiếm
-            default_category_id = get_category_id(cursor, product_name)
-
+            # Lưu từng sản phẩm
+            logger.info(f"Bắt đầu lưu {len(products)} sản phẩm vào database")
             for product in products:
                 try:
-                    logger.debug(f"Xử lý sản phẩm: {product}")
-                    if not product.get('name') or not product.get('link') or not product.get('price'):
-                        logger.warning(f"Bỏ qua sản phẩm thiếu thông tin: {product}")
-                        continue
-
-                    cursor.execute("SELECT 1 FROM Stores WHERE id = ?", (product['store_id'],))
-                    if not cursor.fetchone():
-                        logger.error(f"Store ID không hợp lệ: {product['store_id']} cho sản phẩm {product['name']}")
-                        continue
-
-                    # Gán category_id nếu không có
-                    category_id = product.get('category_id', default_category_id)
-
+                    # Kiểm tra sản phẩm đã tồn tại
                     cursor.execute("""
                         SELECT id, price FROM Products 
-                        WHERE link = ? AND store_id = ?
-                    """, (product['link'], product['store_id']))
+                        WHERE name = ? AND store_id = ? AND link = ?
+                    """, (product['name'], product['store_id'], product['link']))
                     existing_product = cursor.fetchone()
-
+                    
                     if existing_product:
+                        # Cập nhật sản phẩm và lưu lịch sử giá
                         product_id = existing_product[0]
                         old_price = existing_product[1]
-
+                        
                         if old_price != product['price']:
-                            logger.info(f"Cập nhật sản phẩm ID {product_id}: {product['name']}")
+                            # Cập nhật sản phẩm
                             cursor.execute("""
                                 UPDATE Products 
-                                SET name = ?, price = ?, rating = ?, image_url = ?, updated_at = GETDATE(), category_id = ?
+                                SET price = ?, 
+                                    rating = ?,
+                                    image_url = ?,
+                                    last_updated = GETDATE()
                                 WHERE id = ?
-                            """, (product['name'], product['price'], product.get('rating', 0.0), 
-                                  product.get('image_url', ''), category_id, product_id))
-
+                            """, (
+                                product['price'],
+                                product.get('rating'),
+                                product.get('image_url'),
+                                product_id
+                            ))
+                            
+                            # Lưu lịch sử giá
                             cursor.execute("""
                                 INSERT INTO PriceHistory (product_id, price)
                                 VALUES (?, ?)
                             """, (product_id, product['price']))
-                            logger.info(f"Đã cập nhật giá mới cho sản phẩm ID {product_id}")
+
+                            # Tạo thông báo thay đổi giá
+                            price_change = product['price'] - old_price
+                            cursor.execute("""
+                                INSERT INTO Notifications (product_id, message)
+                                VALUES (?, ?)
+                            """, (
+                                product_id,
+                                f"Giá sản phẩm {product['name']} đã thay đổi từ {old_price:,.0f}đ thành {product['price']:,.0f}đ"
+                            ))
                     else:
-                        logger.info(f"Thêm sản phẩm mới: {product['name']}")
+                        # Thêm sản phẩm mới
                         cursor.execute("""
-                            INSERT INTO Products (name, store_id, category_id, price, rating, link, image_url)
-                            OUTPUT INSERTED.ID
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """, (product['name'], product['store_id'], category_id, 
-                              product['price'], product.get('rating', 0.0), product['link'], 
-                              product.get('image_url', '')))
-
-                        row = cursor.fetchone()
-                        if row:
-                            product_id = row[0]
-                            logger.info(f"Đã thêm sản phẩm mới với ID {product_id}")
-
-                            cursor.execute("""
-                                INSERT INTO PriceHistory (product_id, price)
-                                VALUES (?, ?)
-                            """, (product_id, product['price']))
-                            logger.info(f"Đã thêm lịch sử giá cho sản phẩm ID {product_id}")
-                        else:
-                            logger.error(f"Không lấy được ID sau khi thêm sản phẩm: {product['name']}")
-
+                            INSERT INTO Products (name, price, store_id, link, image_url, rating, last_updated)
+                            VALUES (?, ?, ?, ?, ?, ?, GETDATE())
+                        """, (
+                            product['name'],
+                            product['price'],
+                            product['store_id'],
+                            product['link'],
+                            product.get('image_url'),
+                            product.get('rating')
+                        ))
+                        
+                        # Lấy ID của sản phẩm vừa thêm
+                        cursor.execute("SELECT @@IDENTITY")
+                        product_id = cursor.fetchone()[0]
+                        
+                        # Lưu lịch sử giá cho sản phẩm mới
+                        cursor.execute("""
+                            INSERT INTO PriceHistory (product_id, price)
+                            VALUES (?, ?)
+                        """, (product_id, product['price']))
+                        
                 except Exception as e:
                     logger.error(f"Lỗi khi lưu sản phẩm {product.get('name', 'Unknown')}: {str(e)}")
-                    continue
+                    continue  # Tiếp tục với sản phẩm tiếp theo
+                    
+            # Lưu lịch sử tìm kiếm
+            cursor.execute("""
+                INSERT INTO SearchHistory (query, user_id)
+                VALUES (?, 1)  -- Sử dụng user_id mặc định là 1
+            """, (search_query,))
+            
+            logger.info("Đã lưu sản phẩm và lịch sử tìm kiếm thành công")
     except Exception as e:
-        logger.error(f"Lỗi khi kết nối database: {str(e)}")
+        logger.error(f"Lỗi khi lưu sản phẩm vào database: {str(e)}")
         raise
 
 def clear_history():
-    """Xóa toàn bộ dữ liệu từ bảng PriceHistory và Products."""
+    """Xóa lịch sử sản phẩm và giá, nhưng giữ lại các sản phẩm trong Favorites."""
     try:
         with get_db_cursor() as cursor:
-            # Xóa dữ liệu từ bảng PriceHistory trước vì có khóa ngoại
-            cursor.execute("DELETE FROM PriceHistory")
-            logger.info("Đã xóa dữ liệu từ bảng PriceHistory")
+            # Xóa lịch sử giá của các sản phẩm không nằm trong Favorites
+            cursor.execute("""
+                DELETE FROM PriceHistory 
+                WHERE product_id IN (
+                    SELECT p.id 
+                    FROM Products p 
+                    LEFT JOIN Favorites f ON p.id = f.product_id 
+                    WHERE f.product_id IS NULL
+                )
+            """)
             
-            # Xóa dữ liệu từ bảng Products
-            cursor.execute("DELETE FROM Products")
-            logger.info("Đã xóa dữ liệu từ bảng Products")
+            # Xóa các sản phẩm không nằm trong Favorites
+            cursor.execute("""
+                DELETE FROM Products 
+                WHERE id NOT IN (
+                    SELECT DISTINCT product_id 
+                    FROM Favorites
+                )
+            """)
             
-            # Reset identity cho bảng Products
-            cursor.execute("DBCC CHECKIDENT ('Products', RESEED, 0)")
-            cursor.execute("DBCC CHECKIDENT ('PriceHistory', RESEED, 0)")
-            logger.info("Đã reset identity cho các bảng")
+            logger.info("Đã xóa lịch sử sản phẩm thành công, giữ lại các sản phẩm yêu thích")
+            return True
     except Exception as e:
-        logger.error(f"Lỗi khi xóa lịch sử: {str(e)}")
+        logger.error(f"Lỗi khi xóa lịch sử sản phẩm: {str(e)}")
+        raise
+
+def create_price_change_notification(product_id: int, old_price: float, new_price: float):
+    """Tạo thông báo khi giá sản phẩm thay đổi."""
+    try:
+        with get_db_cursor() as cursor:
+            # Lấy thông tin sản phẩm
+            cursor.execute("""
+                SELECT name FROM Products WHERE id = ?
+            """, (product_id,))
+            product = cursor.fetchone()
+            
+            if product:
+                price_change = new_price - old_price
+                message = f"Giá sản phẩm {product[0]} đã thay đổi từ {old_price:,.0f}đ thành {new_price:,.0f}đ"
+                
+                # Tạo thông báo
+                cursor.execute("""
+                    INSERT INTO Notifications (
+                        product_id, message, price_change,
+                        old_price, new_price
+                    )
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    product_id,
+                    message,
+                    price_change,
+                    old_price,
+                    new_price
+                ))
+                
+                logger.info(f"Đã tạo thông báo thay đổi giá cho sản phẩm {product_id}")
+            else:
+                logger.warning(f"Không tìm thấy sản phẩm với ID {product_id}")
+                
+    except Exception as e:
+        logger.error(f"Lỗi khi tạo thông báo thay đổi giá: {str(e)}")
         raise

@@ -4,7 +4,7 @@ from urllib3.util.retry import Retry
 import logging
 import re
 from urllib.parse import urljoin
-from .utils import standardize_product_name, get_category_id_from_keyword
+from .utils import standardize_product_name, get_category_id_from_keyword, validate_image_url
 
 # Thiết lập logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -43,7 +43,7 @@ def crawl_chotot(product_name):
     results = []
     page = 1
     limit = 20
-    max_pages = 3
+    max_pages = 2
 
     session = requests.Session()
     retries = Retry(total=5, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504], allowed_methods=["GET"])
@@ -90,6 +90,7 @@ def crawl_chotot(product_name):
                         continue
 
                     image_url = item.get('image', '') or (item.get('images', [])[0] if item.get('images', []) else '')
+                    image_url = validate_image_url(image_url)
 
                     product = {
                         "name": name,

@@ -45,6 +45,7 @@ BEGIN
         link NVARCHAR(500) NOT NULL,
         image_url NVARCHAR(500),
         updated_at DATETIME DEFAULT GETDATE(),
+        last_updated DATETIME DEFAULT GETDATE(),
         FOREIGN KEY (store_id) REFERENCES Stores(id),
         FOREIGN KEY (category_id) REFERENCES Categories(id)
     );
@@ -104,48 +105,60 @@ BEGIN
 END
 GO
 
--- 9. Chèn dữ liệu mẫu cho Stores
-IF NOT EXISTS (SELECT 1 FROM Stores WHERE name = N'Điện Máy Xanh')
-    INSERT INTO Stores (id, name, website) VALUES (1, N'Điện Máy Xanh', N'https://www.dienmayxanh.com');
-
-IF NOT EXISTS (SELECT 1 FROM Stores WHERE name = N'Thế Giới Di Động')
-    INSERT INTO Stores (id, name, website) VALUES (2, N'Thế Giới Di Động', N'https://www.thegioididong.com');
-
-IF NOT EXISTS (SELECT 1 FROM Stores WHERE name = N'Chợ Tốt')
-    INSERT INTO Stores (id, name, website) VALUES (3, N'Chợ Tốt', N'https://chotot.com');
+-- 9. Tạo bảng Notifications
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Notifications')
+BEGIN
+    CREATE TABLE Notifications (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        product_id INT NOT NULL,
+        message NVARCHAR(500) NOT NULL,
+        price_change DECIMAL(15,2) NOT NULL,
+        old_price DECIMAL(15,2) NOT NULL,
+        new_price DECIMAL(15,2) NOT NULL,
+        created_at DATETIME DEFAULT GETDATE(),
+        is_read BIT DEFAULT 0,
+        FOREIGN KEY (product_id) REFERENCES Products(id)
+    );
+END
 GO
 
--- 10. Chèn dữ liệu mẫu cho Categories
-IF NOT EXISTS (SELECT 1 FROM Categories WHERE name = N'Điện thoại')
-    INSERT INTO Categories (name) VALUES (N'Điện thoại');
+-- 10. Tạo bảng SearchHistory
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'SearchHistory')
+BEGIN
+    CREATE TABLE SearchHistory (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        search_query NVARCHAR(255) NOT NULL,
+        search_date DATETIME DEFAULT GETDATE(),
+        results_count INT DEFAULT 0
+    );
+END
+GO
 
-IF NOT EXISTS (SELECT 1 FROM Categories WHERE name = N'Laptop')
-    INSERT INTO Categories (name) VALUES (N'Laptop');
-
-IF NOT EXISTS (SELECT 1 FROM Categories WHERE name = N'Máy tính bảng')
-    INSERT INTO Categories (name) VALUES (N'Máy tính bảng');
-
-IF NOT EXISTS (SELECT 1 FROM Categories WHERE name = N'Sạc')
-    INSERT INTO Categories (name) VALUES (N'Sạc');
-
-IF NOT EXISTS (SELECT 1 FROM Categories WHERE name = N'Tai nghe')
-    INSERT INTO Categories (name) VALUES (N'Tai nghe');
-
-IF NOT EXISTS (SELECT 1 FROM Categories WHERE name = N'Pin dự phòng')
-    INSERT INTO Categories (name) VALUES (N'Pin dự phòng');
-
-IF NOT EXISTS (SELECT 1 FROM Categories WHERE name = N'Ốp lưng')
-    INSERT INTO Categories (name) VALUES (N'Ốp lưng');
-
-IF NOT EXISTS (SELECT 1 FROM Categories WHERE name = N'Chuột máy tính')
-    INSERT INTO Categories (name) VALUES (N'Chuột máy tính');
-
-IF NOT EXISTS (SELECT 1 FROM Categories WHERE name = N'Bàn phím')
-    INSERT INTO Categories (name) VALUES (N'Bàn phím');
-
-IF NOT EXISTS (SELECT 1 FROM Categories WHERE name = N'Màn hình máy tính')
-    INSERT INTO Categories (name) VALUES (N'Màn hình máy tính');
-
-IF NOT EXISTS (SELECT 1 FROM Categories WHERE name = N'Thiết bị mạng')
-    INSERT INTO Categories (name) VALUES (N'Thiết bị mạng');
+-- 11. Chèn dữ liệu cho bảng Categories nếu chưa có
+IF NOT EXISTS (SELECT * FROM Categories WHERE name IN (
+    N'Điện thoại', N'Laptop', N'Máy tính bảng', N'Tai nghe',
+    N'Tivi', N'Máy hút bụi', N'Máy giặt', N'Tủ lạnh',
+    N'Điều hòa', N'Nồi cơm điện', N'Khác'
+))
+BEGIN
+    -- Xóa dữ liệu cũ nếu có
+    DELETE FROM Categories;
+    
+    -- Reset identity
+    DBCC CHECKIDENT ('Categories', RESEED, 0);
+    
+    -- Chèn các danh mục mới
+    INSERT INTO Categories (name) VALUES
+    (N'Điện thoại'),      -- ID: 1
+    (N'Laptop'),          -- ID: 2
+    (N'Máy tính bảng'),   -- ID: 3
+    (N'Tai nghe'),        -- ID: 4
+    (N'Tivi'),            -- ID: 5
+    (N'Máy hút bụi'),     -- ID: 6
+    (N'Máy giặt'),        -- ID: 7
+    (N'Tủ lạnh'),         -- ID: 8
+    (N'Điều hòa'),        -- ID: 9
+    (N'Nồi cơm điện'),    -- ID: 10
+    (N'Khác');           -- ID: 11
+END
 GO
